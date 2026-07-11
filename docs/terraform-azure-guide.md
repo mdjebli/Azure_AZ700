@@ -955,3 +955,1262 @@ Application éventuelle des changements
 * Sans plan figé, Terraform recalcule toujours un nouveau plan.
 * Les outputs permettent d'extraire facilement des informations après déploiement.
 
+# Chapitre 3
+
+# Le Terraform State
+
+## Introduction
+
+Le Terraform State est l'un des concepts les plus importants de Terraform.
+
+Pour un débutant, il peut sembler étrange qu'un simple fichier soit nécessaire alors que l'infrastructure existe déjà dans Azure.
+
+Après tout, Terraform pourrait-il simplement interroger Azure et comparer le résultat avec les fichiers `.tf` ?
+
+La réponse est non.
+
+Terraform a besoin de conserver une représentation de l'infrastructure qu'il gère.
+
+Cette représentation est appelée :
+
+Terraform State.
+
+---
+
+# 3.1 Le rôle du Terraform State
+
+Le Terraform State est une base de données locale ou distante contenant la correspondance entre :
+
+* les ressources déclarées dans Terraform ;
+* les ressources réellement créées dans le fournisseur cloud.
+
+Dans notre cas :
+
+Terraform
+
+déclare :
+
+azurerm_virtual_network.hub
+
+Le State conserve alors l'association :
+
+azurerm_virtual_network.hub
+
+correspond à :
+
+Virtual Network Azure réellement créé.
+
+---
+
+Sans State, Terraform ne saurait pas faire la différence entre :
+
+* une ressource qu'il a créée ;
+* une ressource existante créée manuellement ;
+* une ressource créée par un autre outil ;
+* une ressource supprimée ou modifiée.
+
+Le State est donc la mémoire de Terraform.
+
+---
+
+# 3.2 Configuration Terraform, State et infrastructure réelle
+
+Terraform fonctionne avec trois sources d'information.
+
+## 1. La configuration Terraform
+
+Elle représente l'état souhaité.
+
+Exemple :
+
+Un fichier Terraform indique :
+
+"Je souhaite un Virtual Network nommé vnet-hub avec l'adresse 10.0.0.0/16."
+
+---
+
+## 2. Le Terraform State
+
+Il représente ce que Terraform pense gérer actuellement.
+
+Exemple :
+
+Terraform sait que :
+
+azurerm_virtual_network.hub
+
+correspond à :
+
+/subscriptions/.../resourceGroups/.../virtualNetworks/vnet-hub
+
+---
+
+## 3. L'infrastructure réelle Azure
+
+Elle représente ce qui existe réellement dans Azure.
+
+Terraform compare donc :
+
+Configuration désirée
+
+*
+
+State Terraform
+
+*
+
+Etat réel Azure
+
+afin de déterminer les différences.
+
+---
+
+# 3.3 Pourquoi Terraform ne travaille pas uniquement avec Azure ?
+
+On pourrait imaginer le fonctionnement suivant :
+
+Terraform lit les fichiers `.tf`.
+
+Terraform interroge Azure.
+
+Terraform compare les deux.
+
+Cependant, cette approche poserait plusieurs problèmes.
+
+---
+
+## Identifier les ressources
+
+Une ressource Terraform possède un nom logique :
+
+azurerm_virtual_network.hub
+
+Azure possède un identifiant unique :
+
+/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/vnet-hub
+
+Terraform doit conserver cette correspondance.
+
+C'est le rôle du State.
+
+---
+
+## Connaître l'historique
+
+Terraform doit savoir :
+
+* quelles ressources il gère ;
+* quelles valeurs ont été utilisées ;
+* quelles propriétés doivent être surveillées.
+
+Le State conserve ces informations.
+
+---
+
+## Calculer les changements
+
+Terraform ne cherche pas seulement à savoir :
+
+"Est-ce que cette ressource existe ?"
+
+Il cherche à savoir :
+
+"Quelle est la différence entre l'état souhaité, l'état connu et l'état réel ?"
+
+---
+
+# 3.4 Le fichier terraform.tfstate
+
+Dans un projet Terraform local, le State est généralement stocké dans un fichier :
+
+terraform.tfstate
+
+Exemple :
+
+```
+terraform.tfstate
+```
+
+Ce fichier contient notamment :
+
+* les ressources suivies ;
+* leurs identifiants Azure ;
+* leurs propriétés ;
+* les métadonnées nécessaires au fonctionnement de Terraform.
+
+Ce fichier est généré automatiquement.
+
+Il ne doit normalement jamais être modifié manuellement.
+
+---
+
+# 3.5 Pourquoi ne faut-il jamais supprimer terraform.tfstate ?
+
+Supprimer le State ne supprime pas automatiquement les ressources Azure.
+
+Cependant, Terraform perdrait sa mémoire.
+
+Exemple :
+
+Avant suppression du State :
+
+Terraform sait :
+
+azurerm_virtual_network.hub
+
+=
+
+VNet Azure vnet-hub
+
+Après suppression :
+
+Terraform ne sait plus qu'il gère ce VNet.
+
+Lors du prochain plan, Terraform pourrait considérer que la ressource n'existe pas et tenter de la recréer.
+
+Cela peut provoquer :
+
+* des erreurs de duplication ;
+* des destructions/recréations inutiles ;
+* une perte de contrôle sur l'infrastructure.
+
+---
+
+# 3.6 Le State dans notre projet AZ-700
+
+Depuis le début du laboratoire, Terraform a maintenu une correspondance entre notre code et Azure.
+
+Par exemple :
+
+La déclaration :
+
+azurerm_virtual_network.hub
+
+correspond au réseau :
+
+Hub VNet Australia East
+
+La déclaration :
+
+azurerm_virtual_network_gateway.vpn
+
+correspond à :
+
+Azure VPN Gateway réellement déployée.
+
+La commande :
+
+terraform state list
+
+nous permet d'observer cette liste de ressources suivies.
+
+# 3.7 Explorer le State avec terraform state list
+
+La commande :
+
+terraform state list
+
+permet d'afficher toutes les ressources actuellement suivies par Terraform.
+
+Dans notre laboratoire AZ-700, cette commande nous a permis d'obtenir une vision directe de ce que Terraform connaît.
+
+Exemple :
+
+azurerm_virtual_network.hub
+
+azurerm_virtual_network.workload
+
+azurerm_virtual_network.dr
+
+azurerm_virtual_network_gateway.vpn
+
+azurerm_virtual_network_gateway_connection.onprem
+
+---
+
+Cette liste ne correspond pas simplement aux fichiers Terraform.
+
+Elle correspond aux ressources que Terraform considère comme étant sous sa gestion.
+
+Une ressource peut donc :
+
+* exister dans un fichier `.tf` mais ne pas apparaître dans le State si elle n'a jamais été créée ;
+* apparaître dans le State alors que sa déclaration a été supprimée du code.
+
+Cette distinction est fondamentale.
+
+---
+
+# 3.8 Examiner une ressource avec terraform state show
+
+La commande :
+
+terraform state show
+
+permet d'afficher le contenu détaillé d'une ressource suivie.
+
+Exemple :
+
+terraform state show azurerm_virtual_network.hub
+
+Terraform affiche alors les informations connues concernant cette ressource.
+
+On peut retrouver notamment :
+
+* son identifiant Azure ;
+* son groupe de ressources ;
+* son adresse réseau ;
+* ses propriétés configurées ;
+* ses métadonnées.
+
+---
+
+Cette commande est très utile pour le diagnostic.
+
+Exemple :
+
+On pense avoir configuré :
+
+10.10.0.0/16
+
+dans un Virtual Network.
+
+La commande :
+
+terraform state show
+
+permet de vérifier ce que Terraform connaît réellement.
+
+---
+
+# 3.9 Différence entre Terraform State et portail Azure
+
+Une erreur fréquente consiste à croire que le portail Azure représente toujours la vérité utilisée par Terraform.
+
+Ce n'est pas exactement le cas.
+
+Terraform fonctionne avec une combinaison :
+
+* configuration déclarée ;
+* State ;
+* état réel Azure.
+
+Le portail Azure montre uniquement l'état actuel d'Azure.
+
+Il ne connaît pas :
+
+* les fichiers Terraform ;
+* les noms logiques Terraform ;
+* les dépendances déclarées ;
+* l'intention de l'administrateur.
+
+---
+
+Exemple :
+
+Un administrateur modifie manuellement une propriété dans Azure.
+
+Avant modification :
+
+Terraform :
+
+adresse réseau = 10.0.0.0/16
+
+Azure :
+
+adresse réseau = 10.0.0.0/16
+
+Tout est cohérent.
+
+---
+
+Après modification manuelle :
+
+Terraform :
+
+adresse réseau = 10.0.0.0/16
+
+Azure :
+
+adresse réseau = 10.1.0.0/16
+
+Une divergence apparaît.
+
+Terraform détectera cette différence lors du prochain plan.
+
+---
+
+# 3.10 Pourquoi éviter les modifications manuelles dans Azure ?
+
+Terraform repose sur le principe d'Infrastructure as Code.
+
+Cela signifie que l'état désiré doit être décrit dans le code.
+
+Modifier directement Azure depuis le portail crée une dérive appelée :
+
+Configuration Drift
+
+ou :
+
+Dérive de configuration.
+
+---
+
+Exemples de dérive :
+
+* ajout manuel d'un subnet ;
+* modification d'une règle NSG ;
+* changement d'une route ;
+* modification d'une adresse IP publique ;
+* suppression d'une ressource.
+
+---
+
+La bonne pratique consiste à :
+
+1. Modifier le code Terraform.
+2. Effectuer un terraform plan.
+3. Vérifier le résultat.
+4. Appliquer avec terraform apply.
+
+Ainsi, le code reste la source de vérité.
+
+---
+
+# 3.11 Le cas particulier d'une ressource supprimée manuellement dans Azure
+
+Imaginons :
+
+Terraform gère :
+
+azurerm_public_ip.vpn_gateway
+
+La ressource existe dans :
+
+* le code Terraform ;
+* le State ;
+* Azure.
+
+Puis un administrateur supprime l'adresse IP depuis le portail Azure.
+
+La situation devient :
+
+Code Terraform :
+
+La ressource doit exister.
+
+State :
+
+La ressource est supposée exister.
+
+Azure :
+
+La ressource n'existe plus.
+
+---
+
+Lors d'un :
+
+terraform plan
+
+Terraform détecte une incohérence.
+
+Il peut alors proposer :
+
+* de recréer la ressource ;
+* de restaurer l'état attendu.
+
+C'est un exemple classique montrant l'importance du State.
+
+---
+
+# 3.12 Le rôle de terraform refresh
+
+La commande :
+
+terraform refresh
+
+permettait historiquement de mettre à jour le State à partir de l'infrastructure réelle.
+
+Son objectif était :
+
+Azure réel
+
+↓
+
+Mise à jour du State
+
+---
+
+Cependant, dans les versions modernes de Terraform, cette commande est progressivement remplacée par le comportement intégré de :
+
+terraform plan
+
+et :
+
+terraform apply
+
+avec le rafraîchissement automatique du State.
+
+La commande moderne recommandée pour analyser les différences reste :
+
+terraform plan
+
+---
+
+# 3.13 Consulter le State avec terraform show
+
+La commande :
+
+terraform show
+
+permet d'afficher une représentation lisible du State actuel.
+
+Elle est différente de :
+
+terraform state show
+
+La différence est :
+
+terraform show
+
+affiche une vue globale du State.
+
+terraform state show
+
+affiche une ressource précise.
+
+---
+
+Exemple :
+
+terraform show
+
+permet d'avoir une vision générale du projet.
+
+terraform state show azurerm_virtual_network.hub
+
+permet d'analyser uniquement le Virtual Network Hub.
+
+---
+
+# À retenir
+
+* Le State est la mémoire de Terraform.
+* Le State associe les ressources Terraform aux ressources Azure réelles.
+* terraform state list affiche les ressources suivies.
+* terraform state show affiche le détail d'une ressource.
+* Le portail Azure n'est pas la source de vérité Terraform.
+* Les modifications manuelles dans Azure créent des dérives.
+* Le code Terraform doit rester la source de vérité.
+* terraform plan permet de détecter les divergences.
+
+# 3.14 Le State local et ses limites
+
+Par défaut, lorsqu'un projet Terraform est initialisé sans configuration particulière, le State est stocké localement.
+
+Cela signifie qu'un fichier :
+
+terraform.tfstate
+
+est présent dans le répertoire du projet.
+
+Cette approche est adaptée :
+
+* aux laboratoires ;
+* aux environnements personnels ;
+* aux phases d'apprentissage ;
+* aux tests rapides.
+
+C'est d'ailleurs le fonctionnement que nous avons utilisé au début de notre laboratoire AZ-700.
+
+---
+
+Cependant, un State local présente rapidement des limites dans un contexte professionnel.
+
+---
+
+# 3.15 Les problèmes du State local en équipe
+
+Imaginons une équipe composée de plusieurs ingénieurs Azure.
+
+Chaque personne possède une copie du dépôt Git.
+
+Si le State est local :
+
+Ingénieur A :
+
+terraform.tfstate local sur son poste.
+
+Ingénieur B :
+
+terraform.tfstate local sur son poste.
+
+Ingénieur C :
+
+terraform.tfstate local sur son poste.
+
+Chaque personne possède alors une vision différente de l'infrastructure.
+
+---
+
+Cela provoque plusieurs problèmes.
+
+## Divergence du State
+
+Deux ingénieurs peuvent appliquer des changements différents avec des fichiers State différents.
+
+---
+
+## Absence de synchronisation
+
+Une modification effectuée par un ingénieur n'est pas automatiquement connue des autres.
+
+---
+
+## Risque d'écrasement
+
+Deux personnes peuvent modifier la même infrastructure simultanément.
+
+Le dernier changement appliqué peut écraser le précédent.
+
+---
+
+Pour résoudre ces problèmes, Terraform utilise les backends distants.
+
+---
+
+# 3.16 Le rôle du backend Terraform
+
+Un backend définit l'endroit où Terraform stocke son State.
+
+Au lieu de :
+
+Poste local
+
+↓
+
+terraform.tfstate
+
+on utilise :
+
+Terraform
+
+↓
+
+Backend distant
+
+↓
+
+State partagé
+
+---
+
+Les backends permettent :
+
+* le stockage centralisé ;
+* le partage entre équipes ;
+* la sécurisation ;
+* le verrouillage ;
+* la sauvegarde.
+
+---
+
+Dans un environnement Azure professionnel, le backend le plus courant est :
+
+Azure Storage Account.
+
+---
+
+# 3.17 Le backend Azure Storage
+
+Terraform peut stocker son State dans un compte de stockage Azure.
+
+L'architecture devient :
+
+Poste administrateur
+
+```
+    |
+
+    v
+```
+
+Terraform
+
+```
+    |
+
+    v
+```
+
+Azure Storage Account
+
+```
+    |
+
+    v
+```
+
+terraform.tfstate
+
+---
+
+Le fichier State n'est plus conservé localement.
+
+Il devient une ressource Azure protégée.
+
+---
+
+Les avantages :
+
+## Centralisation
+
+Toute l'équipe utilise le même State.
+
+---
+
+## Sécurité
+
+Le State peut bénéficier :
+
+* du contrôle d'accès Azure RBAC ;
+* du chiffrement ;
+* des journaux d'audit ;
+* des politiques de sécurité Azure.
+
+---
+
+## Collaboration
+
+Plusieurs ingénieurs peuvent travailler sur la même infrastructure.
+
+---
+
+# 3.18 Le verrouillage du State
+
+Un problème important reste possible :
+
+Deux personnes lancent simultanément :
+
+terraform apply
+
+sur la même infrastructure.
+
+Exemple :
+
+Ingénieur A prépare une modification.
+
+Ingénieur B prépare également une modification.
+
+Les deux appliquent en même temps.
+
+Le résultat peut devenir incohérent.
+
+---
+
+Pour éviter cela, Terraform utilise un mécanisme appelé :
+
+State Locking
+
+ou :
+
+verrouillage du State.
+
+---
+
+Lorsqu'un utilisateur lance :
+
+terraform apply
+
+Terraform demande un verrou sur le State.
+
+Pendant l'application :
+
+* le State est verrouillé ;
+* les autres utilisateurs ne peuvent pas appliquer de changement concurrent.
+
+Une fois terminé :
+
+* le verrou est libéré ;
+* les autres opérations peuvent reprendre.
+
+---
+
+# 3.19 Le State dans une chaîne CI/CD
+
+Dans une organisation mature, Terraform n'est généralement pas exécuté directement depuis un poste administrateur.
+
+Le workflow devient :
+
+Développeur
+
+↓
+
+Modification du code Terraform
+
+↓
+
+Git Repository
+
+↓
+
+Pipeline CI/CD
+
+↓
+
+terraform plan
+
+↓
+
+Validation humaine éventuelle
+
+↓
+
+terraform apply
+
+↓
+
+Azure
+
+---
+
+Le State distant devient alors indispensable.
+
+La plateforme d'automatisation doit pouvoir accéder au même State que les ingénieurs.
+
+---
+
+# 3.20 Le State et la sécurité
+
+Le State contient des informations sensibles.
+
+Il peut contenir :
+
+* des identifiants de ressources ;
+* des paramètres réseau ;
+* des informations de configuration ;
+* parfois des secrets selon les ressources utilisées.
+
+Il ne doit donc pas être :
+
+* publié dans GitHub ;
+* envoyé par email ;
+* partagé sans contrôle.
+
+---
+
+C'est pourquoi un fichier :
+
+.gitignore
+
+Terraform contient généralement :
+
+terraform.tfstate
+
+terraform.tfstate.*
+
+.terraform/
+
+---
+
+Dans notre projet AZ-700, le fichier :
+
+.gitignore
+
+joue donc un rôle important.
+
+Il empêche de versionner accidentellement :
+
+* le State ;
+* les fichiers temporaires Terraform ;
+* les fichiers téléchargés automatiquement.
+
+---
+
+# 3.21 Le State dans notre démarche AZ-700
+
+Notre laboratoire a volontairement commencé avec un State local.
+
+Cette approche était adaptée car :
+
+* nous étions seuls sur le projet ;
+* l'objectif était pédagogique ;
+* nous construisions progressivement l'architecture.
+
+Cependant, si ce laboratoire devenait :
+
+* un environnement partagé ;
+* un projet d'entreprise ;
+* une plateforme de démonstration publique ;
+
+la prochaine évolution logique serait :
+
+Migration vers un backend Azure Storage.
+
+---
+
+# À retenir
+
+* Un State local convient aux laboratoires et tests personnels.
+* Un projet professionnel nécessite généralement un backend distant.
+* Azure Storage Account est le backend Terraform courant sur Azure.
+* Le verrouillage du State évite les modifications concurrentes.
+* Le State contient des informations sensibles.
+* Le fichier State ne doit jamais être versionné dans Git.
+* Le backend distant est une évolution naturelle d'un projet Terraform mature.
+
+# 3.14 Le State local et ses limites
+
+Par défaut, lorsqu'un projet Terraform est initialisé sans configuration particulière, le State est stocké localement.
+
+Cela signifie qu'un fichier :
+
+terraform.tfstate
+
+est présent dans le répertoire du projet.
+
+Cette approche est adaptée :
+
+* aux laboratoires ;
+* aux environnements personnels ;
+* aux phases d'apprentissage ;
+* aux tests rapides.
+
+C'est d'ailleurs le fonctionnement que nous avons utilisé au début de notre laboratoire AZ-700.
+
+---
+
+Cependant, un State local présente rapidement des limites dans un contexte professionnel.
+
+---
+
+# 3.15 Les problèmes du State local en équipe
+
+Imaginons une équipe composée de plusieurs ingénieurs Azure.
+
+Chaque personne possède une copie du dépôt Git.
+
+Si le State est local :
+
+Ingénieur A :
+
+terraform.tfstate local sur son poste.
+
+Ingénieur B :
+
+terraform.tfstate local sur son poste.
+
+Ingénieur C :
+
+terraform.tfstate local sur son poste.
+
+Chaque personne possède alors une vision différente de l'infrastructure.
+
+---
+
+Cela provoque plusieurs problèmes.
+
+## Divergence du State
+
+Deux ingénieurs peuvent appliquer des changements différents avec des fichiers State différents.
+
+---
+
+## Absence de synchronisation
+
+Une modification effectuée par un ingénieur n'est pas automatiquement connue des autres.
+
+---
+
+## Risque d'écrasement
+
+Deux personnes peuvent modifier la même infrastructure simultanément.
+
+Le dernier changement appliqué peut écraser le précédent.
+
+---
+
+Pour résoudre ces problèmes, Terraform utilise les backends distants.
+
+---
+
+# 3.16 Le rôle du backend Terraform
+
+Un backend définit l'endroit où Terraform stocke son State.
+
+Au lieu de :
+
+Poste local
+
+↓
+
+terraform.tfstate
+
+on utilise :
+
+Terraform
+
+↓
+
+Backend distant
+
+↓
+
+State partagé
+
+---
+
+Les backends permettent :
+
+* le stockage centralisé ;
+* le partage entre équipes ;
+* la sécurisation ;
+* le verrouillage ;
+* la sauvegarde.
+
+---
+
+Dans un environnement Azure professionnel, le backend le plus courant est :
+
+Azure Storage Account.
+
+---
+
+# 3.17 Le backend Azure Storage
+
+Terraform peut stocker son State dans un compte de stockage Azure.
+
+L'architecture devient :
+
+Poste administrateur
+
+```
+    |
+
+    v
+```
+
+Terraform
+
+```
+    |
+
+    v
+```
+
+Azure Storage Account
+
+```
+    |
+
+    v
+```
+
+terraform.tfstate
+
+---
+
+Le fichier State n'est plus conservé localement.
+
+Il devient une ressource Azure protégée.
+
+---
+
+Les avantages :
+
+## Centralisation
+
+Toute l'équipe utilise le même State.
+
+---
+
+## Sécurité
+
+Le State peut bénéficier :
+
+* du contrôle d'accès Azure RBAC ;
+* du chiffrement ;
+* des journaux d'audit ;
+* des politiques de sécurité Azure.
+
+---
+
+## Collaboration
+
+Plusieurs ingénieurs peuvent travailler sur la même infrastructure.
+
+---
+
+# 3.18 Le verrouillage du State
+
+Un problème important reste possible :
+
+Deux personnes lancent simultanément :
+
+terraform apply
+
+sur la même infrastructure.
+
+Exemple :
+
+Ingénieur A prépare une modification.
+
+Ingénieur B prépare également une modification.
+
+Les deux appliquent en même temps.
+
+Le résultat peut devenir incohérent.
+
+---
+
+Pour éviter cela, Terraform utilise un mécanisme appelé :
+
+State Locking
+
+ou :
+
+verrouillage du State.
+
+---
+
+Lorsqu'un utilisateur lance :
+
+terraform apply
+
+Terraform demande un verrou sur le State.
+
+Pendant l'application :
+
+* le State est verrouillé ;
+* les autres utilisateurs ne peuvent pas appliquer de changement concurrent.
+
+Une fois terminé :
+
+* le verrou est libéré ;
+* les autres opérations peuvent reprendre.
+
+---
+
+# 3.19 Le State dans une chaîne CI/CD
+
+Dans une organisation mature, Terraform n'est généralement pas exécuté directement depuis un poste administrateur.
+
+Le workflow devient :
+
+Développeur
+
+↓
+
+Modification du code Terraform
+
+↓
+
+Git Repository
+
+↓
+
+Pipeline CI/CD
+
+↓
+
+terraform plan
+
+↓
+
+Validation humaine éventuelle
+
+↓
+
+terraform apply
+
+↓
+
+Azure
+
+---
+
+Le State distant devient alors indispensable.
+
+La plateforme d'automatisation doit pouvoir accéder au même State que les ingénieurs.
+
+---
+
+# 3.20 Le State et la sécurité
+
+Le State contient des informations sensibles.
+
+Il peut contenir :
+
+* des identifiants de ressources ;
+* des paramètres réseau ;
+* des informations de configuration ;
+* parfois des secrets selon les ressources utilisées.
+
+Il ne doit donc pas être :
+
+* publié dans GitHub ;
+* envoyé par email ;
+* partagé sans contrôle.
+
+---
+
+C'est pourquoi un fichier :
+
+.gitignore
+
+Terraform contient généralement :
+
+terraform.tfstate
+
+terraform.tfstate.*
+
+.terraform/
+
+---
+
+Dans notre projet AZ-700, le fichier :
+
+.gitignore
+
+joue donc un rôle important.
+
+Il empêche de versionner accidentellement :
+
+* le State ;
+* les fichiers temporaires Terraform ;
+* les fichiers téléchargés automatiquement.
+
+---
+
+# 3.21 Le State dans notre démarche AZ-700
+
+Notre laboratoire a volontairement commencé avec un State local.
+
+Cette approche était adaptée car :
+
+* nous étions seuls sur le projet ;
+* l'objectif était pédagogique ;
+* nous construisions progressivement l'architecture.
+
+Cependant, si ce laboratoire devenait :
+
+* un environnement partagé ;
+* un projet d'entreprise ;
+* une plateforme de démonstration publique ;
+
+la prochaine évolution logique serait :
+
+Migration vers un backend Azure Storage.
+
+---
+
+# À retenir
+
+* Un State local convient aux laboratoires et tests personnels.
+* Un projet professionnel nécessite généralement un backend distant.
+* Azure Storage Account est le backend Terraform courant sur Azure.
+* Le verrouillage du State évite les modifications concurrentes.
+* Le State contient des informations sensibles.
+* Le fichier State ne doit jamais être versionné dans Git.
+* Le backend distant est une évolution naturelle d'un projet Terraform mature.
