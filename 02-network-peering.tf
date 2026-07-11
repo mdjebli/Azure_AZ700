@@ -79,8 +79,9 @@ resource "azurerm_virtual_network_peering" "hub_to_workload" {
 
   #
   # Le Hub pourra exposer une Gateway aux spokes.
-  # Comme La VPN Gateway n'existe pas encore, cette option sera activée dans le chapitre VPN Gateway.
-  allow_gateway_transit = false
+  # # Echec si VPN Gateway n'existe pas encore
+
+  allow_gateway_transit = true
 
 
 }
@@ -129,8 +130,8 @@ resource "azurerm_virtual_network_peering" "workload_to_hub" {
   #    v
   # VPN Gateway Hub
   #
-  # # Comme La VPN Gateway n'existe pas encore, cette option sera activée dans le chapitre VPN Gateway.
-  use_remote_gateways = false
+  # # Echec si VPN Gateway n'existe pas encore
+  use_remote_gateways = true
 
 
 }
@@ -174,7 +175,6 @@ resource "azurerm_virtual_network_peering" "hub_to_dr" {
   allow_forwarded_traffic = true
 
 
-  # Comme La VPN Gateway n'existe pas encore, cette option sera activée dans le chapitre VPN Gateway.
 
   allow_gateway_transit = false
 
@@ -211,9 +211,9 @@ resource "azurerm_virtual_network_peering" "dr_to_hub" {
 
   allow_forwarded_traffic = true
 
-  # Comme La VPN Gateway n'existe pas encore, cette option sera activée dans le chapitre VPN Gateway.
+  # # Echec si VPN Gateway n'existe pas encore
 
-  use_remote_gateways = false
+  use_remote_gateways = true
 
 
 }
